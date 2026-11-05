@@ -2,12 +2,11 @@ package vswitch
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -145,7 +144,7 @@ func writeAndReceive(src, dst *os.File, frame []byte) error {
 		return errors.New("timed out waiting for frame")
 	}
 
-	buf := make([]byte, 1500)
+	buf := make([]byte, 9000)
 	n, err = dst.Read(buf)
 	if err != nil {
 		return fmt.Errorf("read frame: %w", err)
@@ -159,71 +158,124 @@ func writeAndReceive(src, dst *os.File, frame []byte) error {
 }
 
 func BenchmarkForward(b *testing.B) {
+	const totalBytes = 1 << 20
+
 	for _, size := range []int{64, 512, 1500, 9000} {
 		b.Run(fmt.Sprintf("%dB", size), func(b *testing.B) {
-			tmpRoot := b.TempDir()
-			ctx := context.Background()
-
-			m := NewManager(ctx, tmpRoot)
-			if err := m.Create(ctx, "bench"); err != nil {
-				b.Fatal(err)
-			}
-			defer m.Shutdown()
-
-			port1, err := RequestPort(filepath.Join(tmpRoot, "bench.sock"), "port-1")
+			sw := NewVSwitch(b.Context())
+			defer sw.Close()
+			p1, err := sw.Open("p1")
 			if err != nil {
 				b.Fatal(err)
 			}
-			defer port1.Close()
-
-			port2, err := RequestPort(filepath.Join(tmpRoot, "bench.sock"), "port-2")
+			p2, err := sw.Open("p2")
 			if err != nil {
+				_ = p1.Close()
 				b.Fatal(err)
 			}
-			defer port2.Close()
 
-			frame := make([]byte, size)
+			defer sw.Close()
 
-			// Unknown unicast destination, stable source MAC.
-			copy(frame[0:6], []byte{0x02, 0, 0, 0, 0, 99})
-			copy(frame[6:12], []byte{0x02, 0, 0, 0, 0, 1})
-			frame[12] = 0x08
-			frame[13] = 0x00
+			port1 := p1.(*PortLease).port
+			port2 := p2.(*PortLease).port
+			fd1 := port1.GuestFD()
+			fd2 := port2.GuestFD()
 
-			buf := make([]byte, size+100)
+			mac1 := []byte{0x02, 0, 0, 0, 0, 1}
+			mac2 := []byte{0x02, 0, 0, 0, 0, 2}
 
-			b.SetBytes(int64(size))
+			makeFrame := func(dst, src []byte) []byte {
+				frame := make([]byte, size)
+				copy(frame[0:6], dst)
+				copy(frame[6:12], src)
+				frame[12], frame[13] = 0x08, 0x00
+				return frame
+			}
+
+			frame1 := makeFrame(mac2, mac1)
+			frame2 := makeFrame(mac1, mac2)
+
+			// Prime the switch's MAC table in both directions.
+			if err := writeAndReceive(fd1, fd2, frame1); err != nil {
+				b.Fatal(err)
+			}
+			if err := writeAndReceive(fd2, fd1, frame2); err != nil {
+				b.Fatal(err)
+			}
+
+			framesPerDirection := totalBytes / (2 * size)
+			bytesPerIteration := int64(2 * framesPerDirection * size)
+
+			b.SetBytes(bytesPerIteration)
 			b.ReportAllocs()
 			b.ResetTimer()
 
-			done := make(chan error, 1)
+			buf1 := make([]byte, size)
+			buf2 := make([]byte, size)
 
-			// Continuously drain the receiving port.
-			go func() {
-				for i := 0; i < b.N; i++ {
-					n, err := port2.Read(buf)
-					if err != nil {
-						done <- err
-						return
-					}
-					if n != size {
-						done <- fmt.Errorf("unexpected frame size: got %d, want %d", n, size)
-						return
-					}
-				}
-				done <- nil
-			}()
-
-			// Continuously send frames.
 			for i := 0; i < b.N; i++ {
-				if _, err := port1.Write(frame); err != nil {
-					b.Fatal(err)
-				}
-			}
+				errs := make(chan error, 4)
+				var wg sync.WaitGroup
+				wg.Add(4)
 
-			if err := <-done; err != nil {
-				b.Fatal(err)
+				readFrames := func(fd *os.File, buf []byte) {
+					defer wg.Done()
+					for j := 0; j < framesPerDirection; j++ {
+						n, err := fd.Read(buf)
+						if err != nil {
+							errs <- err
+							return
+						}
+						if n != size {
+							errs <- fmt.Errorf("read %d bytes, want %d", n, size)
+							return
+						}
+					}
+				}
+
+				writeFrames := func(fd *os.File, frame []byte) {
+					defer wg.Done()
+					for j := 0; j < framesPerDirection; j++ {
+						n, err := fd.Write(frame)
+						if err != nil {
+							errs <- err
+							return
+						}
+						if n != size {
+							errs <- fmt.Errorf("wrote %d bytes, want %d", n, size)
+							return
+						}
+					}
+				}
+
+				go readFrames(fd1, buf1)
+				go readFrames(fd2, buf2)
+				go writeFrames(fd1, frame1)
+				go writeFrames(fd2, frame2)
+
+				wg.Wait()
+				close(errs)
+				for err := range errs {
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
 			}
 		})
+	}
+}
+
+func BenchmarkVSwitchLearnHWAddr(b *testing.B) {
+	vs := &VSwitch{
+		ports:   map[string]Port{"source": nil},
+		hwTable: make(map[HWAddr]string, 1),
+	}
+	addr := HWAddr{0x02, 0, 0, 0, 0, 1}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		vs.learnHWAddr("source", addr)
 	}
 }
