@@ -83,21 +83,19 @@ func (vs *VSwitch) flood(srcId string) (ports []Port) {
 
 // lookup returns the known destination port for a unicast address, or the
 // eligible ports to flood when the address is multicast or unknown.
-func (vs *VSwitch) lookup(srcId string, dstAddr HWAddr) (dstPorts []Port) {
+func (vs *VSwitch) lookup(srcId string, dstAddr HWAddr) (Port, []Port) {
 	vs.mu.RLock()
 	defer vs.mu.RUnlock()
-	// Multicast and broadcast.
-	if dstAddr[0]&1 != 0 {
-		return vs.flood(srcId)
-	}
 
-	if dstId, ok := vs.hwTable[dstAddr]; ok {
-		if p, ok := vs.ports[dstId]; ok && dstId != srcId {
-			dstPorts = append(dstPorts, p)
-			return dstPorts
+	if dstAddr[0]&1 == 0 {
+		if id, ok := vs.hwTable[dstAddr]; ok && id != srcId {
+			if p, ok := vs.ports[id]; ok {
+				return p, nil
+			}
 		}
 	}
-	return vs.flood(srcId)
+
+	return nil, vs.flood(srcId)
 }
 
 // learnHWAddr records a unicast source address for an attached port. Zero and
@@ -129,28 +127,24 @@ func (vs *VSwitch) Forward(srcId string, frame []byte) error {
 	copy(src[:], frame[6:12])
 
 	vs.learnHWAddr(srcId, src)
+	p, flood := vs.lookup(srcId, dst)
 
 	switch {
-	case dst[0]&1 != 0:
-		vs.mu.RLock()
-		all := vs.all
-		vs.mu.RUnlock()
-		return forward(srcId, all, frame)
+	case p != nil:
+		return forward(srcId, []Port{p}, frame)
+	case flood != nil:
+		return forward(srcId, flood, frame)
 	default:
-		dstPorts := vs.lookup(srcId, dst)
-		return forward(srcId, dstPorts, frame)
-
+		return nil
 	}
+
 }
 
 // forward writes frame to each port other than srcId and joins any write
 // errors.
 func forward(srcId string, ports []Port, frame []byte) error {
-	errs := []error{}
+	var errs []error
 	for _, port := range ports {
-		if port.ID() == srcId {
-			continue
-		}
 		_, err := port.HostFD().Write(frame)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("error forwarding src=%s, dst=%s : %w", srcId, port.ID(), err))
