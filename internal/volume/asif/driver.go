@@ -9,6 +9,7 @@ import (
 
 	codehex "github.com/Code-Hex/vz/v4"
 	"github.com/Code-Hex/vz/v4/diskimagekit"
+	"github.com/rtgnx/vz/internal/config"
 	"github.com/rtgnx/vz/internal/volume/types"
 	"github.com/tmc/apple/foundation"
 	vz "github.com/tmc/apple/virtualization"
@@ -45,7 +46,15 @@ func (d *Driver) Create(name string, sizeGB uint64) error {
 		d.root, fmt.Sprintf("%s%s", name, VolumeTypeExt),
 	)
 
+	manifestFp := filepath.Join(
+		d.root, fmt.Sprintf("%s.yml", name),
+	)
+
 	if _, err := os.Stat(fp); !os.IsNotExist(err) {
+		return types.ErrVolumeExists
+	}
+
+	if _, err := os.Stat(manifestFp); !os.IsNotExist(err) {
 		return types.ErrVolumeExists
 	}
 
@@ -59,6 +68,9 @@ func (d *Driver) Create(name string, sizeGB uint64) error {
 		diskimagekit.WithBlockSize(DefaultBlockSize),
 	)
 
+	manifest := new(Manifest)
+	//manifest.Root = img.LayerUUID()
+
 	if err != nil {
 		return errors.Join(types.ErrVolumeCreate, err)
 	}
@@ -67,7 +79,7 @@ func (d *Driver) Create(name string, sizeGB uint64) error {
 		return errors.Join(types.ErrVolumeCreate, err)
 	}
 
-	return nil
+	return config.Write(manifest, manifestFp)
 }
 
 // Delete removes the ASIF image named name. It wraps [types.ErrVolumeDelete]
@@ -137,18 +149,41 @@ func (d *Driver) List() ([]types.Stat, error) {
 // returned volume owns the image and server resources; callers must close it
 // after the attachment is no longer in use.
 func (d *Driver) Open(name string) (types.Volume, error) {
-	fp := filepath.Join(
-		d.root, fmt.Sprintf("%s%s", name, VolumeTypeExt),
+	var (
+		baseFp     = filepath.Join(d.root, name)
+		imageFp    = fmt.Sprintf("%s%s", baseFp, VolumeTypeExt)
+		manifestFp = fmt.Sprintf("%s.%s", baseFp, ".yml")
 	)
 
 	img, err := diskimagekit.Open(
-		fp, diskimagekit.WithOpenMode(
+		imageFp, diskimagekit.WithOpenMode(
 			diskimagekit.ReadWrite,
 		),
 	)
 
 	if err != nil {
 		return nil, errors.Join(types.ErrVolumeOpen, err)
+	}
+
+	manifest, err := config.Read[Manifest](manifestFp)
+
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		manifest = new(Manifest)
+	}
+
+	for _, layer := range manifest.Layers {
+		layerFp := filepath.Join(d.root, `layers`, layer)
+
+		if err := img.Append(layerFp); err != nil {
+			return nil, err
+		}
+
+		if layer == manifest.Current {
+			break
+		}
 	}
 
 	isrv, err := codehex.NewDiskImageServer(img)
@@ -177,7 +212,9 @@ func (d *Driver) Open(name string) (types.Volume, error) {
 	}
 
 	return &Volume{
-		image: img, server: isrv,
+		path:     imageFp,
+		manifest: *manifest,
+		image:    img, server: isrv,
 		attachment: blockDev.VZStorageDeviceAttachment,
 	}, nil
 }

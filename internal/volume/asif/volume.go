@@ -11,8 +11,18 @@ import (
 
 	codehex "github.com/Code-Hex/vz/v4"
 	"github.com/Code-Hex/vz/v4/diskimagekit"
+	"github.com/rtgnx/vz/internal/config"
+	"github.com/rtgnx/vz/internal/volume/types"
 	vz "github.com/tmc/apple/virtualization"
 )
+
+type Manifest struct {
+	Root string
+	// Layers list of ordered ASIF image layers
+	Layers []string
+	// Current writable layer
+	Current string
+}
 
 // Volume is an opened ASIF image and the resources required to expose it as a
 // Virtualization.framework storage attachment.
@@ -21,7 +31,7 @@ type Volume struct {
 	image      *diskimagekit.DiskImage
 	server     *codehex.DiskImageServer
 	attachment vz.VZStorageDeviceAttachment
-	layers     []string
+	manifest   Manifest
 	closeOnce  sync.Once
 	closeErr   error
 }
@@ -49,15 +59,13 @@ func (v *Volume) Attachment() vz.VZStorageDeviceAttachment {
 // Snapshot creates new ASIF layer and appends it to list of layers
 // Close() - should commit these layers in {name}.yml so that
 // they can be reconstructed in correct order
-func (v *Volume) Snapshot(label string) error {
+func (v *Volume) Snapshot(ref string) error {
 
-	layerRef := hex.EncodeToString(
-		sha256.New().Sum(
-			fmt.Appendf(nil, "%s:%s", v.image.LayerUUID(), label),
-		),
-	)
+	fp := filepath.Join(filepath.Dir(v.path), `layers`, ref)
 
-	fp := filepath.Join(filepath.Dir(v.path), `layers`, layerRef)
+	if _, err := os.Stat(fp); err != nil && !os.IsNotExist(err) {
+		return types.ErrVolumeExists
+	}
 
 	err := os.MkdirAll(filepath.Dir(fp), 0750)
 
@@ -69,7 +77,10 @@ func (v *Volume) Snapshot(label string) error {
 		return err
 	}
 
-	v.layers = append(v.layers, layerRef)
+	v.manifest.Layers = append(v.manifest.Layers, ref)
+	v.manifest.Current = ref
+	return config.Write(v.manifest, strings.TrimSuffix(v.path, `.asif`)+`.yml`)
+}
 
 	return nil
 }
