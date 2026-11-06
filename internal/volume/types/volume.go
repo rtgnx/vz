@@ -7,6 +7,11 @@ import (
 	vz "github.com/tmc/apple/virtualization"
 )
 
+const (
+	MiB uint64 = 1 << 20
+	GiB uint64 = 1 << 30
+)
+
 var (
 	// ErrVolumeOpen indicates that a volume could not be opened.
 	ErrVolumeOpen = errors.New("volume open error")
