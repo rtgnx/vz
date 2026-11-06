@@ -3,11 +3,14 @@ package vm
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/rtgnx/vz/internal/config"
 	"github.com/rtgnx/vz/internal/network"
 	ntypes "github.com/rtgnx/vz/internal/network/types"
+	"github.com/rtgnx/vz/internal/oci"
 	"github.com/rtgnx/vz/internal/store"
 	"github.com/rtgnx/vz/internal/volume"
 	vtypes "github.com/rtgnx/vz/internal/volume/types"
@@ -21,10 +24,11 @@ type BuildContext struct {
 	ctx     context.Context
 	volume  *volume.Manager
 	network *network.Manager
+	images  *oci.ImageStore
 }
 
-func NewBuildContext(ctx context.Context, volume *volume.Manager, network *network.Manager) *BuildContext {
-	return &BuildContext{ctx, volume, network}
+func NewBuildContext(ctx context.Context, volume *volume.Manager, network *network.Manager, images *oci.ImageStore) *BuildContext {
+	return &BuildContext{ctx, volume, network, images}
 }
 
 func New(ctx *BuildContext, name string) (vm *VM, err error) {
@@ -41,11 +45,23 @@ func New(ctx *BuildContext, name string) (vm *VM, err error) {
 	vm.networks = make([]ntypes.Netdev, 0)
 	vm.volumes = make([]vtypes.Volume, 0)
 	vm.mu = sync.Mutex{}
+	var cmdline string
+	if cfg.Boot.Mode == config.BootModeKernel {
+		cmdline = "console=tty0 console=hvc0 root=/dev/vda"
+		slog.Info(
+			"kernel mode",
+			"kernel", cfg.Boot.Kernel,
+			"initrd", cfg.Boot.Initrd,
+		)
+	}
 
 	vm.cfg, err = vzkit.BuildLinuxVMConfig(
 		vzkit.LinuxVMConfig{
 			CPUs: cfg.CPUs, MemoryGB: cfg.Memory,
 			RootfsMode: vzkit.NoRootfs,
+			KernelPath: cfg.Boot.Kernel,
+			InitrdPath: cfg.Boot.Initrd,
+			CmdLine:    cmdline,
 			ISOPath:    cfg.Boot.ISO,
 			StateDir:   store.Path(cfg.Name),
 			Network: vzkit.NetworkConfig{
@@ -56,6 +72,8 @@ func New(ctx *BuildContext, name string) (vm *VM, err error) {
 	)
 
 	err = errors.Join(
+		err,
+		WithContainer(*cfg)(ctx, vm),
 		WithRD(*cfg)(ctx, vm),
 		WithVolumes(cfg.Storage.Volumes...)(ctx, vm),
 		WithNetworks(cfg.Networks...)(ctx, vm),
@@ -72,6 +90,34 @@ func New(ctx *BuildContext, name string) (vm *VM, err error) {
 }
 
 type VMConfigFunc func(ctx *BuildContext, vm *VM) error
+
+func WithContainer(cfg config.VM) VMConfigFunc {
+	return func(ctx *BuildContext, vm *VM) error {
+		if cfg.Boot.Mode != config.BootModeKernel {
+			return nil
+		}
+
+		ref, err := name.ParseReference(cfg.Boot.Image)
+		if err != nil {
+			return err
+		}
+
+		slog.Info("pulling container image", "image", ref.Name())
+		if err := ctx.images.Pull(ref); err != nil {
+			return err
+		}
+
+		rd, err := volume.OpenRD(cfg)
+		if err != nil {
+			return err
+		}
+
+		if err := ctx.images.CopyToVolume(rd, ref); err != nil {
+			return errors.Join(err, rd.Close())
+		}
+		return nil
+	}
+}
 
 func WithRD(cfg config.VM) VMConfigFunc {
 	return func(ctx *BuildContext, vm *VM) error {
@@ -134,10 +180,11 @@ func WithDisplay(vncPassword string) VMConfigFunc {
 		})
 
 		vm.vnc, err = vnc.New(vnc.Config{
-			Mode:        vnc.SecurityPassword,
-			Password:    vncPassword,
-			ServiceName: vm.name,
-			Queue:       vm.q,
+			Mode:     vnc.SecurityPassword,
+			Password: vncPassword,
+			//ServiceName: vm.name,
+			Port:  5905,
+			Queue: vm.q,
 		})
 
 		if err != nil {

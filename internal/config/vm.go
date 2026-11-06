@@ -23,6 +23,7 @@ const (
 
 type BootConfig struct {
 	Mode        BootMode `yaml:"mode" json:"mode"`
+	Image       string   `yaml:"image,omitempty" json:"image,omitempty"`
 	ISO         string   `yaml:"iso,omitempty" json:"iso,omitempty"`
 	Kernel      string   `yaml:"kernel,omitempty" json:"kernel,omitempty"`
 	Initrd      string   `yaml:"initrd,omitempty" json:"initrd,omitempty"`

@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/Code-Hex/vz/v4"
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/rtgnx/vz/internal/config"
 	"github.com/rtgnx/vz/internal/discovery"
 	"github.com/rtgnx/vz/internal/network"
+	"github.com/rtgnx/vz/internal/oci"
 	"github.com/rtgnx/vz/internal/store"
 	"github.com/rtgnx/vz/internal/vm"
 	"github.com/rtgnx/vz/internal/volume"
@@ -38,17 +40,19 @@ type VMM struct {
 	vms     map[string]*vm.VM
 	network *network.Manager
 	volume  *volume.Manager
+	image   *oci.ImageStore
 	mu      sync.Mutex
 }
 
 // New constructs a virtual machine manager using ctx as its manager context
 // and the supplied network and volume managers for VM resources.
-func New(ctx context.Context, volume *volume.Manager, network *network.Manager) *VMM {
+func New(ctx context.Context, volume *volume.Manager, network *network.Manager, image *oci.ImageStore) *VMM {
 	return &VMM{
 		ctx:     ctx,
 		vms:     make(map[string]*vm.VM),
 		network: network,
 		volume:  volume,
+		image:   image,
 		mu:      sync.Mutex{},
 	}
 }
@@ -73,7 +77,7 @@ func (vmm *VMM) Start(ctx context.Context, name string) error {
 		}
 	}
 
-	bctx := vm.NewBuildContext(ctx, vmm.volume, vmm.network)
+	bctx := vm.NewBuildContext(ctx, vmm.volume, vmm.network, vmm.image)
 	vm, err := vm.New(bctx, name)
 
 	if err != nil {
@@ -233,6 +237,18 @@ func (vmm *VMM) Create(ctx context.Context, cfg config.VM) error {
 		}
 
 		return errors.Join(ErrCreateVM, err)
+	}
+
+	if len(cfg.Boot.Image) > 0 {
+		ref, err := name.ParseReference(cfg.Boot.Image)
+
+		if err != nil {
+			return err
+		}
+
+		if err := vmm.image.Pull(ref); err != nil {
+			return err
+		}
 	}
 
 	if err := config.Write(cfg, fp); err != nil {

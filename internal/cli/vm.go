@@ -49,6 +49,7 @@ func CreateVMCommand(ctx context.Context, client *ipc.Client) *cobra.Command {
 	flags.Uint64VarP(&cfg.Memory, "memory", "m", cfg.Memory, "memory in GiB")
 	flags.StringVar(&bootMode, "boot-mode", bootMode, "boot mode: iso, disk, or kernel")
 	flags.StringVarP(&cfg.Boot.ISO, "iso", "i", "", "installer ISO path (boot-mode iso)")
+	flags.StringVarP(&cfg.Boot.Image, "image", "k", "", "conainer image ref (boot-mode container)")
 	flags.StringSliceVarP(&cfg.Networks, "network", "n", nil, "attach a named network (repeatable)")
 	flags.Uint64VarP(&cfg.Storage.RDSize, "disk", "d", cfg.Storage.RDSize, "root disk size in GiB")
 	flags.StringSliceVarP(&cfg.Storage.Volumes, "volume", "v", cfg.Storage.Volumes, "additional disk volumes")

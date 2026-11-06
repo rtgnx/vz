@@ -10,6 +10,7 @@ import (
 
 	"github.com/rtgnx/vz/internal/ipc"
 	"github.com/rtgnx/vz/internal/network"
+	"github.com/rtgnx/vz/internal/oci"
 	"github.com/rtgnx/vz/internal/store"
 	"github.com/rtgnx/vz/internal/vmm"
 	"github.com/rtgnx/vz/internal/volume"
@@ -35,6 +36,13 @@ func main() {
 		return
 	}
 
+	slog.Info("initializing oci image store")
+	imageStore, err := oci.NewImageStore(store.Path(`images`))
+
+	if err != nil {
+		slog.Error("initializing oci image store", "err", err)
+	}
+
 	slog.Info("initializing network manager")
 	networkManager, err := network.New(store.Path())
 
@@ -44,7 +52,7 @@ func main() {
 	}
 
 	slog.Info("initializng vm manager")
-	vmm := vmm.New(ctx, volumeManager, networkManager)
+	vmm := vmm.New(ctx, volumeManager, networkManager, imageStore)
 
 	slog.Info("serving api", "sock", store.Path("vzd.sock"))
 	go func() {

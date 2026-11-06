@@ -191,7 +191,9 @@ func NewExt4Writer(fp string, size int64) (ImageFS, error) {
 		return nil, err
 	}
 
-	fs, err := ext4.Create(file.New(fd, false), size, 0, 512, nil)
+	fs, err := ext4.Create(file.New(fd, false), size*2, 0, 512, &ext4.Params{
+		SectorsPerBlock: 8, // 8 × 512-byte sectors = 4096-byte ext4 blocks
+	})
 	return &Ext4Writer{fs}, err
 }
 
