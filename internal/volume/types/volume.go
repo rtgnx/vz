@@ -18,6 +18,8 @@ var (
 	ErrVolumeExists = errors.New("volume already exists")
 	// ErrVolumeNotExists indicates that the requested volume does not exist.
 	ErrVolumeNotExists = errors.New("volume does not exist")
+	// ErrUnsupportedAction indicates that feature is not supported by the driver
+	ErrUnsupportedAction = errors.New("unsupported action")
 )
 
 // Stat describes a volume reported by a [Driver].
@@ -58,6 +60,9 @@ type Volume interface {
 	// Close releases resources held by the opened volume. Callers should stop
 	// using the attachment before closing the volume.
 	Close() error
+
+	// Writer returns [io.Writer] for the block device backing the volume
+	Writer() io.Writer
 }
 
 // BlockDevice provides random-access reads and writes to a storage device.

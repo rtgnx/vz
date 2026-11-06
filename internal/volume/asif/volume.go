@@ -1,12 +1,11 @@
 package asif
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	codehex "github.com/Code-Hex/vz/v4"
@@ -82,5 +81,8 @@ func (v *Volume) Snapshot(ref string) error {
 	return config.Write(v.manifest, strings.TrimSuffix(v.path, `.asif`)+`.yml`)
 }
 
-	return nil
+func (v *Volume) Size() int64 { return v.image.Size() }
+
+func (v *Volume) Writer() io.Writer {
+	return io.NewOffsetWriter(v.image, 0)
 }

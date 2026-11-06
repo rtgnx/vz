@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 
@@ -113,3 +114,7 @@ func (v *Volume) Close() error {
 }
 
 func (v *Volume) Attachment() vz.VZStorageDeviceAttachment { return v.attachment }
+
+func (v *Volume) Writer() io.Writer {
+	return io.NewOffsetWriter(v.device, 0)
+}
