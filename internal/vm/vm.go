@@ -1,3 +1,5 @@
+//go:build darwin
+
 package vm
 
 import (
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	vzc "github.com/Code-Hex/vz/v4"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/rtgnx/vz/internal/config"
 	network "github.com/rtgnx/vz/internal/network/types"
 	volume "github.com/rtgnx/vz/internal/volume/types"
@@ -45,6 +48,7 @@ type Info struct {
 type VM struct {
 	name     string
 	cfg      vz.VZVirtualMachineConfiguration
+	image    v1.Config
 	q        *vzkit.Queue
 	vm       vz.VZVirtualMachine
 	vnc      *vnc.Server
@@ -140,10 +144,14 @@ func (vm *VM) Start() error {
 		}
 	}
 
-	return await(func(f func(error)) {
+	if err := await(func(f func(error)) {
 		vzkit.StartVM(vm.q, vm.vm, f)
-	})
+	}); err != nil {
+		return err
+	}
 
+	go vm.Serve(context.Background())
+	return nil
 }
 
 // Close releases the VM's network and volume resources. The VM must be

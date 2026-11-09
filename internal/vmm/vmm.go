@@ -1,3 +1,5 @@
+//go:build darwin
+
 package vmm
 
 import (
@@ -81,6 +83,7 @@ func (vmm *VMM) Start(ctx context.Context, name string) error {
 	vm, err := vm.New(bctx, name)
 
 	if err != nil {
+		slog.Error("vm start error", "name", name, "err", err.Error())
 		return err
 	}
 

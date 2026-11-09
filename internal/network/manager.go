@@ -47,7 +47,24 @@ func New(root string) (*Manager, error) {
 		root: root,
 	}
 
+	slog.Info("creating default NAT network")
+
+	err = manager.Create(config.Network{
+		Name: "default",
+		Type: config.NetworkTypeNAT,
+	})
+
+	if err != nil {
+		slog.Error("creating default NAT network", "err", err)
+	}
+
 	for _, cfg := range *networks {
+
+		// Reserved name for default NAT
+		if cfg.Name == "default" {
+			continue
+		}
+
 		slog.Info("creating network", "name", cfg.Name, "type", cfg.Type)
 		if err := manager.Create(cfg); err != nil {
 			slog.Error("creating network", "name", cfg.Name, "type", cfg.Type, "err", err)

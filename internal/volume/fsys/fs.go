@@ -191,9 +191,23 @@ func NewExt4Writer(fp string, size int64) (ImageFS, error) {
 		return nil, err
 	}
 
+	const minSize int64 = 256 << 20
+	size *= 4
+
+	if size < minSize {
+		size = minSize
+	}
+
 	fs, err := ext4.Create(file.New(fd, false), size*2, 0, 512, &ext4.Params{
 		SectorsPerBlock: 8, // 8 × 512-byte sectors = 4096-byte ext4 blocks
+		VolumeName:      `rd`,
 	})
+
+	if err != nil {
+		_ = fd.Close()
+		return nil, err
+	}
+
 	return &Ext4Writer{fs}, err
 }
 

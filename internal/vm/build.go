@@ -1,3 +1,5 @@
+//go:build darwin
+
 package vm
 
 import (
@@ -106,6 +108,18 @@ func WithContainer(cfg config.VM) VMConfigFunc {
 		if err := ctx.images.Pull(ref); err != nil {
 			return err
 		}
+
+		image, err := ctx.images.Open(ref)
+		if err != nil {
+			return err
+		}
+
+		imageConfig, err := image.ConfigFile()
+		if err != nil {
+			return err
+		}
+
+		vm.image = imageConfig.Config
 
 		rd, err := volume.OpenRD(cfg)
 		if err != nil {

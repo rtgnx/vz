@@ -98,7 +98,7 @@ func (is ImageStore) makeExt4Image(ref name.Reference) (string, error) {
 		return fp, err
 	}
 
-	fsys, err := fsys.NewExt4Writer(fp, size*2)
+	fsys, err := fsys.NewExt4Writer(fp, size)
 	if err != nil {
 		return fp, err
 	}
