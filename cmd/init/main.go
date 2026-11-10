@@ -5,29 +5,43 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/rpc"
 	"os"
-	"os/signal"
-	"syscall"
 
-	"github.com/rtgnx/vz/internal/linux"
+	"github.com/rtgnx/vz/internal/linux/initd"
+	"github.com/rtgnx/vz/internal/network/vsock"
 )
 
 func main() {
-	ctx, cancel := signal.NotifyContext(
-		context.Background(),
-		syscall.SIGINT, syscall.SIGABRT, syscall.SIGTERM,
-		syscall.SIGSTOP, syscall.SIGQUIT,
-	)
 
-	defer cancel()
+	if len(os.Args) > 1 {
 
-	if len(os.Args) < 2 {
-		if err := linux.Initd(ctx); err != nil {
-			slog.Error("initd", "err", err)
+		if err := initd.Entrypoint(os.Args[1], os.Args[1:]); err != nil {
+			slog.Error("[entrypoint]", "err", err)
 		}
+
 		return
-	} else {
-		linux.Stage2()
 	}
 
+	listener, err := vsock.Listen(context.Background(), 9999)
+
+	if err != nil {
+		slog.Error("[vsock] failed to bind", "port", 9999)
+	}
+
+	agent := initd.New()
+	agent.Start()
+
+	srv := rpc.NewServer()
+
+	srv.RegisterName("Agent", agent)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			slog.Error("[vsock] connetion error")
+		}
+
+		srv.ServeConn(conn)
+	}
 }

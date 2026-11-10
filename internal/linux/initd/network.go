@@ -1,6 +1,6 @@
 //go:build linux
 
-package dhcpd
+package initd
 
 import (
 	"context"
@@ -9,35 +9,71 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/insomniacslk/dhcp/dhcpv4/nclient4"
-
+	"github.com/topcheer/mdns"
 	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
-func DHCPClient(ctx context.Context) error {
+type NetworkConfig struct {
+	Hostname string
+}
+
+func Network(ctx context.Context, cfg NetworkConfig) error {
+	slog.Info("[init:network]: setting hostname", "hostname", cfg.Hostname)
+
+	if err := unix.Sethostname([]byte(cfg.Hostname)); err != nil {
+		slog.Error("[init:network]: setting hostname", "hostname", cfg.Hostname)
+	}
+
 	links, err := netlink.LinkList()
+
 	if err != nil {
 		return err
 	}
 
-	var wg sync.WaitGroup
+	var (
+		wg         sync.WaitGroup
+		mdnsConfig = mdns.DefaultConfig()
+	)
+
+	mdnsConfig.Port = 5353
 
 	for _, link := range links {
 		attrs := link.Attrs()
-
 		if !strings.HasPrefix(attrs.Name, "eth") {
 			continue
 		}
-
-		slog.Info("[netlink] link", "name", attrs.Name, "hw", attrs.HardwareAddr.String())
-		c, cancel := context.WithCancel(ctx)
 		wg.Add(1)
-		go linkSetup(c, link, &wg)
+		tctx, cancel := context.WithTimeout(
+			ctx, time.Second*30,
+		)
 		defer cancel()
+		go linkSetup(tctx, link, &wg)
+
+		mdnsConfig.Interfaces = append(
+			mdnsConfig.Interfaces, attrs.Name,
+		)
 	}
 
 	wg.Wait()
+
+	slog.Info(
+		"[init:network]: starting mdns",
+		"hostname", cfg.Hostname, "interfaces", mdnsConfig.Interfaces,
+	)
+
+	srv, err := mdns.NewServer(mdnsConfig)
+	if err != nil {
+		slog.Error("[init:network]: starting mdns", "err", err)
+	} else {
+		if err := srv.Start(); err != nil {
+			slog.Error("[init:network]: starting mdns", "err", err)
+		}
+	}
+
 	return nil
 }
 

@@ -8,12 +8,14 @@ require (
 	github.com/enbility/zeroconf/v3 v3.0.0-20260410070239-bf752832c353
 	github.com/erofs/go-erofs v0.3.2
 	github.com/google/go-containerregistry v0.22.1
-	github.com/google/gopacket v1.1.19
+	github.com/insomniacslk/dhcp v0.0.0-20261014062924-c6bb46ad3f3a
 	github.com/pojntfx/go-nbd v0.3.2
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	github.com/tmc/apple v0.6.18
+	github.com/topcheer/mdns v1.3.0
 	github.com/uiscsi/uiscsi v1.4.1
+	github.com/vishvananda/netlink v1.3.1
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
 	golang.org/x/sys v0.49.0
 )
@@ -24,12 +26,18 @@ require (
 	github.com/ebitengine/purego v0.11.0-alpha.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/josharian/native v1.1.0 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
+	github.com/mdlayher/packet v1.1.2 // indirect
+	github.com/mdlayher/socket v0.4.1 // indirect
 	github.com/miekg/dns v1.1.62 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
+	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923 // indirect
+	github.com/vishvananda/netns v0.0.5 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/net v0.59.0 // indirect

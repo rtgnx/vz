@@ -8,16 +8,24 @@ import (
 	"log/slog"
 	"net/rpc"
 
-	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/rtgnx/vz/internal/ipc/hbus"
+	"github.com/rtgnx/vz/internal/config"
 )
 
 const (
 	HostVSOCKPort uint32 = 7000
 )
 
-type Entrypoint struct {
-	v1.Config
+type HostService struct {
+	guest config.GuestConfig
+}
+
+type GuestConfigResponse struct {
+	Guest config.GuestConfig
+}
+
+func (hs *HostService) GuestConfig(_ *struct{}, res *GuestConfigResponse) error {
+	res.Guest = hs.guest
+	return nil
 }
 
 func (vm *VM) Serve(ctx context.Context) {
@@ -32,7 +40,14 @@ func (vm *VM) Serve(ctx context.Context) {
 	)
 
 	rpc := rpc.NewServer()
-	rpc.RegisterName("Host", &hbus.HostService{ImageConfig: vm.image})
+	rpc.RegisterName("Host", &HostService{
+		config.GuestConfig{
+			Env:        vm.image.Env,
+			Entrypoint: vm.image.Entrypoint,
+			Hostname:   vm.name,
+			WorkingDir: vm.image.WorkingDir,
+		},
+	})
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
