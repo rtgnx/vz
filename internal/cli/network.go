@@ -50,8 +50,7 @@ func CreateNetworkCommand(ctx context.Context, client *ipc.Client) *cobra.Comman
 
 	flags := cmd.Flags()
 	flags.StringVarP(&networkType, "type", "t", networkType, "network type: switch or nat")
-	flags.StringVar(&network.CIDR, "cidr", "", "network CIDR")
-	flags.BoolVar(&network.DHCP, "dhcp", false, "enable DHCP")
+	flags.StringVar(&network.CIDR, "cidr", "10.1.1.0/24", "network CIDR")
 	return cmd
 }
 
