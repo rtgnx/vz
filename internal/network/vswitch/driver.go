@@ -8,7 +8,16 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/rtgnx/vz/internal/config"
 	"github.com/rtgnx/vz/internal/network/types"
+)
+
+var (
+	// ErrSwitchExists indicates that a switch with the requested name already
+	// exists.
+	ErrSwitchExists = errors.New("switch exists")
+	// ErrSwitchNotExists indicates that the requested switch does not exist.
+	ErrSwitchNotExists = errors.New("switch does exists")
 )
 
 // Driver manages in-process virtual switches.
@@ -57,13 +66,18 @@ func (m *Driver) Open(name string) (types.Network, error) {
 
 // Create creates and registers a switch with the given name. It returns
 // [ErrSwitchExists] if that name is already registered.
-func (m *Driver) Create(name string) error {
+func (m *Driver) Create(cfg config.Network) (err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.sw[name]; !ok {
-		m.sw[name] = NewVSwitch(m.ctx)
-		return nil
+	if _, ok := m.sw[cfg.Name]; !ok {
+		m.sw[cfg.Name], err = NewVSwitch(m.ctx, cfg.CIDR)
+
+		if err != nil {
+			delete(m.sw, cfg.Name)
+		}
+
+		return err
 	}
 
 	return ErrSwitchExists

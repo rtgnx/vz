@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"sync"
 
+	"github.com/rtgnx/vz/internal/network/dhcpd"
 	"github.com/rtgnx/vz/internal/network/types"
 )
 
@@ -50,21 +52,30 @@ type VSwitch struct {
 	cancel  context.CancelFunc
 	ports   map[string]Port
 	hwTable map[HWAddr]string
+	dhcpd   *dhcpd.Server
 	mu      sync.RWMutex
 	all     []Port
 }
 
 // NewVSwitch creates an empty virtual switch whose lifetime is canceled when
 // ctx is canceled.
-func NewVSwitch(ctx context.Context) *VSwitch {
+func NewVSwitch(ctx context.Context, cidr string) (*VSwitch, error) {
 	cctx, cancel := context.WithCancel(ctx)
+	_, ip, err := net.ParseCIDR(cidr)
+
+	if err != nil {
+		return nil, err
+	}
+
+	dhcpd, _ := dhcpd.NewServer(*ip)
 
 	return &VSwitch{
 		ctx: cctx, cancel: cancel,
 		ports:   make(map[string]Port),
 		hwTable: make(map[HWAddr]string),
+		dhcpd:   dhcpd,
 		mu:      sync.RWMutex{},
-	}
+	}, nil
 }
 
 // flood returns all attached ports except the source port. The caller must
@@ -136,6 +147,19 @@ func (vs *VSwitch) Forward(srcId string, frame []byte) error {
 	copy(src[:], frame[6:12])
 
 	vs.learnHWAddr(srcId, src)
+
+	if vs.isDHCPv4ClientFrame(frame) && vs.dhcpd != nil {
+		res, err := vs.dhcpd.ServeFrame(frame)
+
+		if err != nil || res == nil {
+			return err
+		}
+
+		vs.mu.RLock()
+		defer vs.mu.RUnlock()
+		return forward(srcId, []Port{vs.ports[srcId]}, res)
+	}
+
 	p, flood := vs.lookup(srcId, dst)
 
 	switch {
@@ -187,6 +211,56 @@ func (vs *VSwitch) read(p Port) {
 			}
 		}
 	}
+}
+
+func (vs *VSwitch) isDHCPv4ClientFrame(frame []byte) bool {
+	be16 := func(b []byte, i int) uint16 {
+		return uint16(b[i])<<8 | uint16(b[i+1])
+	}
+
+	if len(frame) < 14 {
+		return false
+	}
+
+	var (
+		etherType = be16(frame, 12)
+		ip        = 14
+	)
+
+	// Skip 802.1Q / QinQ VLAN headers.
+	for etherType == 0x8100 || etherType == 0x88a8 || etherType == 0x9100 {
+		if len(frame) < ip+4 {
+			return false
+		}
+		etherType = be16(frame, ip+2)
+		ip += 4
+	}
+
+	if etherType != 0x0800 || len(frame) < ip+20 { // IPv4
+		return false
+	}
+
+	if frame[ip]>>4 != 4 {
+		return false
+	}
+
+	ihl := int(frame[ip]&0x0f) * 4
+
+	if ihl < 20 || len(frame) < ip+ihl+8 {
+		return false
+	}
+
+	if frame[ip+9] != 17 { // UDP
+		return false
+	}
+
+	ipLen := int(be16(frame, ip+2))
+	if ipLen < ihl+8 || ip+ipLen > len(frame) {
+		return false
+	}
+
+	udp := ip + ihl
+	return be16(frame, udp) == 68 && be16(frame, udp+2) == 67
 }
 
 // AddPort attaches p to the switch and starts reading frames from its host

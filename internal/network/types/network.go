@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 
+	"github.com/rtgnx/vz/internal/config"
 	vz "github.com/tmc/apple/virtualization"
 )
 
@@ -39,7 +40,7 @@ type Driver interface {
 	// List returns the names of networks managed by the driver.
 	List() []string
 	// Create creates a network with the given name.
-	Create(name string) error
+	Create(config.Network) error
 	// Delete removes the named network.
 	Delete(name string) error
 	// Open opens the named network.

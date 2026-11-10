@@ -88,7 +88,7 @@ func (c *Manager) Create(cfg config.Network) error {
 	}
 
 	if driver, ok := c.drivers[string(cfg.Type)]; ok {
-		if err := driver.Create(cfg.Name); err != nil {
+		if err := driver.Create(cfg); err != nil {
 			return err
 		}
 

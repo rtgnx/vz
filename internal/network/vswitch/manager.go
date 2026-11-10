@@ -14,14 +14,6 @@ import (
 	"github.com/rtgnx/vz/internal/store"
 )
 
-var (
-	// ErrSwitchExists indicates that a switch with the requested name already
-	// exists.
-	ErrSwitchExists = errors.New("switch exists")
-	// ErrSwitchNotExists indicates that the requested switch does not exist.
-	ErrSwitchNotExists = errors.New("switch does exists")
-)
-
 // Manager manages Unix-socket-accessible virtual switches.
 type Manager struct {
 	root string
@@ -58,7 +50,7 @@ func (m *Manager) Shutdown() error {
 // Create creates a switch named name, listens for port handover requests on a
 // Unix socket beneath the manager's root, and writes the network definition to
 // the store. It returns [ErrSwitchExists] if the name is already managed.
-func (m *Manager) Create(ctx context.Context, name string) error {
+func (m *Manager) Create(ctx context.Context, name string, cidr string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -72,7 +64,10 @@ func (m *Manager) Create(ctx context.Context, name string) error {
 			return err
 		}
 
-		m.sw[name] = NewVSwitch(m.ctx)
+		m.sw[name], err = NewVSwitch(m.ctx, cidr)
+		if err != nil {
+			return err
+		}
 
 		go SWPortHandover(listener.(*net.UnixListener), m.sw[name])
 		slog.Info("switch created", "net", name)

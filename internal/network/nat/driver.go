@@ -3,6 +3,7 @@ package nat
 import (
 	"sync"
 
+	"github.com/rtgnx/vz/internal/config"
 	"github.com/rtgnx/vz/internal/network/types"
 	vz "github.com/tmc/apple/virtualization"
 )
@@ -39,15 +40,15 @@ func (*Driver) List() []string { return []string{} }
 func (*Driver) Delete(name string) error { return nil }
 
 // Create registers a NAT network with the given name.
-func (d *Driver) Create(name string) error {
+func (d *Driver) Create(cfg config.Network) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if _, ok := d.nats[name]; ok {
+	if _, ok := d.nats[cfg.Name]; ok {
 		return types.ErrNetworkExists
 	}
 
-	d.nats[name] = new(NAT)
+	d.nats[cfg.Name] = new(NAT)
 	return nil
 }
 

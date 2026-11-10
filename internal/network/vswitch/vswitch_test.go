@@ -22,7 +22,7 @@ func TestVSwitch(t *testing.T) {
 
 	m := NewManager(t.Context(), tmpRoot)
 
-	if assert.NoError(t, m.Create(t.Context(), `test-switch`)) {
+	if assert.NoError(t, m.Create(t.Context(), `test-switch`, `10.1.1.0/24`)) {
 		socketPath := path.Join(tmpRoot, "test-switch.sock")
 		port1, err := RequestPort(socketPath, "test-port")
 		if assert.NoError(t, err) {
@@ -162,7 +162,7 @@ func BenchmarkForward(b *testing.B) {
 
 	for _, size := range []int{64, 512, 1500, 9000} {
 		b.Run(fmt.Sprintf("%dB", size), func(b *testing.B) {
-			sw := NewVSwitch(b.Context())
+			sw, _ := NewVSwitch(b.Context(), "10.1.1.0/24")
 			defer sw.Close()
 			p1, err := sw.Open("p1")
 			if err != nil {
