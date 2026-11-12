@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/erofs/go-erofs"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/rtgnx/vz/internal/volume/fsys"
 )
 
-func extractImage(dst fsys.ImageFS, image v1.Image) error {
+func extractImage(w *erofs.Writer, image v1.Image) error {
+	dst := &fsys.EroFS{w}
 	archive := mutate.Extract(image)
 	tr := tar.NewReader(archive)
 	copyBuf := make([]byte, 1<<20)

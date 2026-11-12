@@ -43,7 +43,7 @@ type Driver struct {
 // Create creates an ASIF image named name with the requested capacity in
 // gigabytes. It returns [types.ErrVolumeExists] if the image path already
 // exists and wraps [types.ErrVolumeCreate] if image creation fails.
-func (d *Driver) Create(name string, sizeGB uint64) error {
+func (d *Driver) Create(name string, size uint64) error {
 	fp := filepath.Join(
 		d.root, fmt.Sprintf("%s%s", name, VolumeTypeExt),
 	)
@@ -61,9 +61,13 @@ func (d *Driver) Create(name string, sizeGB uint64) error {
 	}
 
 	var (
-		sizeBytes  = sizeGB * GB
-		blockCount = sizeBytes / uint64(DefaultBlockSize)
+		blockCount = size / uint64(DefaultBlockSize)
 	)
+
+	// Round up to the next block
+	if size%uint64(DefaultBlockSize) != 0 {
+		blockCount++
+	}
 
 	img, err := diskimagekit.CreateASIF(
 		fp, int64(blockCount),
@@ -106,7 +110,11 @@ func (d *Driver) Delete(name string) error {
 		return errors.Join(types.ErrVolumeDelete, err)
 	}
 
-	return nil
+	manifestFp := filepath.Join(
+		d.root, fmt.Sprintf("%s.yml", name),
+	)
+
+	return os.Remove(manifestFp)
 }
 
 // List returns statistics for ASIF images in the driver's root directory.
@@ -146,24 +154,31 @@ func (d *Driver) List() ([]types.Stat, error) {
 	return volumes, nil
 }
 
-// Open opens the named ASIF image and creates a Virtualization.framework
+func (d *Driver) Open(name string) (types.Volume, error) {
+	return d.OpenWithMode(name, diskimagekit.ReadWrite)
+}
+
+func (d *Driver) OpenRO(name string) (types.Volume, error) {
+	return d.OpenWithMode(name, diskimagekit.ReadOnly)
+}
+
+// OpenWithMode opens the named ASIF image and creates a Virtualization.framework
 // network block device attachment backed by a local disk image server. The
 // returned volume owns the image and server resources; callers must close it
 // after the attachment is no longer in use.
-func (d *Driver) Open(name string) (types.Volume, error) {
+func (d *Driver) OpenWithMode(name string, mode diskimagekit.OpenMode) (types.Volume, error) {
 	var (
 		baseFp     = filepath.Join(d.root, name)
 		imageFp    = fmt.Sprintf("%s%s", baseFp, VolumeTypeExt)
 		manifestFp = fmt.Sprintf("%s.%s", baseFp, ".yml")
 	)
 
-	img, err := diskimagekit.Open(
-		imageFp, diskimagekit.WithOpenMode(
-			diskimagekit.ReadWrite,
-		),
-	)
+	img, err := diskimagekit.Open(imageFp, diskimagekit.WithOpenMode(mode))
 
 	if err != nil {
+		if os.IsNotExist(err) {
+			err = errors.Join(types.ErrVolumeNotExists, err)
+		}
 		return nil, errors.Join(types.ErrVolumeOpen, err)
 	}
 
@@ -204,7 +219,7 @@ func (d *Driver) Open(name string) (types.Volume, error) {
 	}
 
 	blockDev, err := vz.NewNetworkBlockDeviceStorageDeviceAttachmentWithURLTimeoutForcedReadOnlySynchronizationModeError(
-		url, 5, false, vz.VZDiskSynchronizationModeFull,
+		url, 5, mode == diskimagekit.ReadOnly, vz.VZDiskSynchronizationModeFull,
 	)
 
 	if err != nil {

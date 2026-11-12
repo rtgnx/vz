@@ -11,10 +11,8 @@ import (
 	"time"
 
 	vzc "github.com/Code-Hex/vz/v4"
-	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/rtgnx/vz/internal/config"
-	network "github.com/rtgnx/vz/internal/network/types"
-	volume "github.com/rtgnx/vz/internal/volume/types"
+	"github.com/rtgnx/vz/internal/provision"
 	vz "github.com/tmc/apple/virtualization"
 	"github.com/tmc/apple/x/vzkit"
 	"github.com/tmc/apple/x/vzkit/vnc"
@@ -47,15 +45,21 @@ type Info struct {
 // with its runtime instance.
 type VM struct {
 	name     string
-	cfg      vz.VZVirtualMachineConfiguration
-	image    v1.Config
 	q        *vzkit.Queue
+	vmc      *provision.VMConfiguration
 	vm       vz.VZVirtualMachine
-	vnc      *vnc.Server
-	volumes  []volume.Volume
-	networks []network.Netdev
 	released bool
 	mu       sync.Mutex
+}
+
+func NewVM(vmc *provision.VMConfiguration, name string) *VM {
+	var (
+		q   = vzkit.NewQueue(name)
+		cfg = vmc.Config()
+		vm  = vzkit.CreateVM(cfg, q)
+	)
+
+	return &VM{name: name, q: q, vmc: vmc, vm: vm}
 }
 
 // State returns the VM's current Virtualization.framework runtime state.
@@ -138,8 +142,11 @@ func (vm *VM) Start() error {
 		return ErrCannotStart
 	}
 
-	if vm.vnc != nil {
-		if _, err := vm.vnc.StartVirtualMachine(vm.vm); err != nil {
+	vnc, err := vnc.New(vm.vmc.VNC(vm.q))
+	if err != nil {
+		slog.Warn("vnc not configured", "err", err)
+	} else {
+		if _, err := vnc.StartVirtualMachine(vm.vm); err != nil {
 			return err
 		}
 	}
@@ -165,21 +172,8 @@ func (vm *VM) Close() error {
 		return ErrVMRunning
 	}
 
-	var errs []error
-
-	for i := len(vm.networks) - 1; i >= 0; i-- {
-		if err := vm.networks[i].Close(); err != nil {
-			errs = append(errs, fmt.Errorf("release network: %w", err))
-		}
-	}
-
-	for i := len(vm.volumes) - 1; i >= 0; i-- {
-		if err := vm.volumes[i].Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close volume: %w", err))
-		}
-	}
-
-	return errors.Join(errs...)
+	// Releases all resources claimed by this instance
+	return vm.vmc.Close()
 }
 
 // Kill force-stops the VM and waits for the stop operation to complete or ctx

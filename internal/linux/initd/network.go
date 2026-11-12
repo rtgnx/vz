@@ -17,15 +17,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type NetworkConfig struct {
-	Hostname string
-}
+func Network(ctx context.Context, hostname string) error {
+	slog.Info("[init:network]: setting hostname", "hostname", hostname)
 
-func Network(ctx context.Context, cfg NetworkConfig) error {
-	slog.Info("[init:network]: setting hostname", "hostname", cfg.Hostname)
-
-	if err := unix.Sethostname([]byte(cfg.Hostname)); err != nil {
-		slog.Error("[init:network]: setting hostname", "hostname", cfg.Hostname)
+	if err := unix.Sethostname([]byte(hostname)); err != nil {
+		slog.Error("[init:network]: setting hostname", "hostname", hostname)
 	}
 
 	links, err := netlink.LinkList()
@@ -62,7 +58,7 @@ func Network(ctx context.Context, cfg NetworkConfig) error {
 
 	slog.Info(
 		"[init:network]: starting mdns",
-		"hostname", cfg.Hostname, "interfaces", mdnsConfig.Interfaces,
+		"hostname", hostname, "interfaces", mdnsConfig.Interfaces,
 	)
 
 	srv, err := mdns.NewServer(mdnsConfig)

@@ -3,18 +3,18 @@
 package oci
 
 import (
+	"encoding/base64"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/erofs/go-erofs"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/layout"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/rtgnx/vz/internal/volume/fsys"
+	"github.com/rtgnx/vz/internal/volume/asif"
 	"github.com/rtgnx/vz/internal/volume/types"
 )
 
@@ -24,13 +24,14 @@ const (
 )
 
 type ImageStore struct {
-	root  string
-	fsys  string
-	store layout.Path
+	root   string
+	fsys   string
+	store  layout.Path
+	driver types.Driver
 }
 
 func NewImageStore(root string) (*ImageStore, error) {
-	imageStore := &ImageStore{root: root}
+	imageStore := &ImageStore{root: root, driver: asif.New(root)}
 	if _, err := os.Stat(filepath.Join(`index.json`)); err != nil {
 		store, err := layout.Write(root, empty.Index)
 		if err != nil {
@@ -88,46 +89,80 @@ func (is ImageStore) Open(ref name.Reference) (v1.Image, error) {
 	return nil, errors.New("image not found")
 }
 
-func (is ImageStore) makeExt4Image(ref name.Reference) (string, error) {
+func (is ImageStore) Config(ref name.Reference) (v1.Config, error) {
 	image, err := is.Open(ref)
-	fp := filepath.Join(is.root, strings.ReplaceAll(ref.Name(), `/`, `:`)+".ext4")
 	if err != nil {
-		return fp, err
+		return v1.Config{}, err
+	}
+	configFile, err := image.ConfigFile()
+	if err != nil {
+		return v1.Config{}, err
+	}
+	return configFile.Config, nil
+}
+
+func (is ImageStore) OpenRD(ref name.Reference) (types.Volume, error) {
+	volume, err := is.driver.(*asif.Driver).OpenRO(safeName(ref.String()))
+	if err != nil {
+		if errors.Is(err, types.ErrVolumeNotExists) {
+			if err := is.CreateRD(ref); err != nil {
+				return nil, err
+			}
+			return is.driver.(*asif.Driver).OpenRO(safeName(ref.String()))
+		} else {
+			return nil, err
+		}
+	}
+
+	return volume, nil
+}
+
+func (is ImageStore) CreateRD(ref name.Reference) (err error) {
+	image, err := is.Open(ref)
+	if err != nil {
+		return err
 	}
 
 	size, err := imageSize(image)
 	if err != nil {
-		return fp, err
+		return err
 	}
+	var (
+		name          = safeName(ref.String())
+		overheadBytes = uint64(0)
+		sizeBytes     = uint64(size) + overheadBytes
+	)
 
-	fsys, err := fsys.NewExt4Writer(fp, size)
-	if err != nil {
-		return fp, err
-	}
-
-	return fp, extractImage(fsys, image)
-}
-
-func (is ImageStore) CopyToVolume(volume types.Volume, ref name.Reference) error {
-
-	if _, err := is.makeExt4Image(ref); err != nil {
+	if err = is.driver.Create(name, sizeBytes); err != nil {
 		return err
 	}
 
-	fp := filepath.Join(is.root, strings.ReplaceAll(ref.Name(), `/`, `:`)+".ext4")
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, is.driver.Delete(name))
+		}
+	}()
 
-	fd, err := os.Open(fp)
+	volume, err := is.driver.Open(name)
 
 	if err != nil {
 		return err
 	}
 
-	defer fd.Close()
-	defer volume.Close()
-	buf := make([]byte, 1<<20)
-	type readerOnly struct {
-		io.Reader
+	var (
+		w   = NewBufferedImageWriter(volume.(*asif.Volume))
+		efs = erofs.Create(w, erofs.WithBlockSize(int(asif.DefaultBlockSize)))
+	)
+
+	if err = extractImage(efs, image); err != nil {
+		return errors.Join(err, volume.Close())
 	}
-	_, err = io.CopyBuffer(volume.Writer(), readerOnly{fd}, buf)
-	return err
+
+	if err := w.Finish(); err != nil {
+		return errors.Join(err, volume.Close())
+	}
+
+	return volume.Close()
 }
+
+func safeName(in string) (out string) { return base64.StdEncoding.EncodeToString([]byte(in)) }

@@ -30,5 +30,5 @@ func OpenRD(vm config.VM) (types.Volume, error) {
 // a root disk with that name already exists.
 func CreateRD(name string, sizeGB uint64) error {
 	driver := asif.New(store.Path(name))
-	return driver.Create(name, sizeGB)
+	return driver.Create(name, sizeGB<<30)
 }

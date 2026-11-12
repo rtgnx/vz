@@ -12,14 +12,11 @@ import (
 	"time"
 
 	"github.com/Code-Hex/vz/v4"
-	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/rtgnx/vz/internal/config"
 	"github.com/rtgnx/vz/internal/discovery"
-	"github.com/rtgnx/vz/internal/network"
-	"github.com/rtgnx/vz/internal/oci"
+	"github.com/rtgnx/vz/internal/provision"
 	"github.com/rtgnx/vz/internal/store"
 	"github.com/rtgnx/vz/internal/vm"
-	"github.com/rtgnx/vz/internal/volume"
 )
 
 var (
@@ -38,24 +35,20 @@ var (
 // VMM manages virtual machine lifecycles and coordinates their network and
 // volume resources.
 type VMM struct {
-	ctx     context.Context
-	vms     map[string]*vm.VM
-	network *network.Manager
-	volume  *volume.Manager
-	image   *oci.ImageStore
-	mu      sync.Mutex
+	ctx         context.Context
+	vms         map[string]*vm.VM
+	provisioner *provision.Provisioner
+	mu          sync.Mutex
 }
 
 // New constructs a virtual machine manager using ctx as its manager context
 // and the supplied network and volume managers for VM resources.
-func New(ctx context.Context, volume *volume.Manager, network *network.Manager, image *oci.ImageStore) *VMM {
+func New(ctx context.Context, provisioner *provision.Provisioner) *VMM {
 	return &VMM{
-		ctx:     ctx,
-		vms:     make(map[string]*vm.VM),
-		network: network,
-		volume:  volume,
-		image:   image,
-		mu:      sync.Mutex{},
+		ctx:         ctx,
+		vms:         make(map[string]*vm.VM),
+		provisioner: provisioner,
+		mu:          sync.Mutex{},
 	}
 }
 
@@ -79,19 +72,25 @@ func (vmm *VMM) Start(ctx context.Context, name string) error {
 		}
 	}
 
-	bctx := vm.NewBuildContext(ctx, vmm.volume, vmm.network, vmm.image)
-	vm, err := vm.New(bctx, name)
+	cfg, err := config.Read[config.VM](store.Path(name, `vm.yml`))
+	if err != nil {
+		return ErrVMNotExist
+	}
+
+	vmc, err := vmm.provisioner.Prepare(*cfg)
 
 	if err != nil {
 		slog.Error("vm start error", "name", name, "err", err.Error())
 		return err
 	}
 
+	vm := vm.NewVM(vmc, name)
+
 	slog.Info("starting virtual machine", "name", name)
 
 	if err := vm.Start(); err != nil {
 		slog.Error("starting virtual machine", "name", name, "err", err)
-		return err
+		return errors.Join(err, vm.Close())
 	}
 
 	vmm.vms[name] = vm
@@ -180,16 +179,7 @@ func (vmm *VMM) Shutdown(ctx context.Context) error {
 		vmm.mu.Lock()
 	}
 
-	if err := vmm.network.Close(); err != nil {
-		slog.Error("stopping network manager", "err", err)
-		return err
-	}
-
-	if err := vmm.volume.Close(); err != nil {
-		return err
-	}
-
-	return nil
+	return vmm.provisioner.Close()
 }
 
 // List reads persisted VM definitions and returns them with their current
@@ -240,18 +230,6 @@ func (vmm *VMM) Create(ctx context.Context, cfg config.VM) error {
 		}
 
 		return errors.Join(ErrCreateVM, err)
-	}
-
-	if len(cfg.Boot.Image) > 0 {
-		ref, err := name.ParseReference(cfg.Boot.Image)
-
-		if err != nil {
-			return err
-		}
-
-		if err := vmm.image.Pull(ref); err != nil {
-			return err
-		}
 	}
 
 	if err := config.Write(cfg, fp); err != nil {

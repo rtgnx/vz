@@ -92,6 +92,7 @@ func (m *Manager) Create(ctx context.Context, cfg config.Volume) error {
 		// normalize format/driver name
 		format     = strings.ToLower(cfg.Format)
 		driver, ok = m.drivers[format]
+		sizeBytes  = cfg.Size << 30
 	)
 
 	if !ok {
@@ -108,7 +109,7 @@ func (m *Manager) Create(ctx context.Context, cfg config.Volume) error {
 		configurable.Configure(cfg)
 	}
 
-	if err := driver.Create(cfg.Name, cfg.Size); err != nil {
+	if err := driver.Create(cfg.Name, sizeBytes); err != nil {
 		if configurable, ok := driver.(interface{ Forget(string) }); ok {
 			configurable.Forget(cfg.Name)
 		}

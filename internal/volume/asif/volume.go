@@ -89,6 +89,10 @@ func (v *Volume) Writer() io.Writer {
 	return io.NewOffsetWriter(v.image, 0)
 }
 
+func (v *Volume) WriteAt(p []byte, off int64) (int, error) {
+	return v.image.WriteAt(p, off)
+}
+
 func (v *Volume) Reader() io.Reader {
 	return io.NewSectionReader(v.image, 0, v.image.Size())
 }
