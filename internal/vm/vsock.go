@@ -30,7 +30,7 @@ func (vm *VM) Dial(port uint32) (conn net.Conn, err error) {
 
 	})
 
-	conn, err = vsock.Dial(vm.q, dev, 7000)
+	conn, err = vsock.Dial(vm.q, dev, port)
 	return conn, err
 }
 

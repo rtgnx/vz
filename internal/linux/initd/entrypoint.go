@@ -5,7 +5,6 @@ package initd
 import (
 	"context"
 	"io"
-	"log/slog"
 	"os"
 	"os/exec"
 	"syscall"
@@ -14,8 +13,14 @@ import (
 )
 
 const DefaultPathEnv string = `PATH=/bin:/usr/bin:/sbin:/usr/sbin`
+const DefaultInit = `/sbin/init`
 
 func ExecEntrypoint(ctx context.Context, cfg config.GuestConfig, logw io.Writer) error {
+
+	if len(cfg.Entrypoint) < 1 {
+		cfg.Entrypoint = []string{DefaultInit}
+	}
+
 	cmd := exec.CommandContext(ctx, `/.init`, cfg.Entrypoint...)
 
 	cmd.Stdout = logw
@@ -34,7 +39,6 @@ func ExecEntrypoint(ctx context.Context, cfg config.GuestConfig, logw io.Writer)
 }
 
 func Entrypoint(argv0 string, argv []string) error {
-	slog.Info("[entrypoint]", argv0)
 	if err := Mounts([]Mount{
 		{`proc`, `/proc`, `proc`, 0555},
 		{`devtmpfs`, `/dev`, `devtmpfs`, 0755},

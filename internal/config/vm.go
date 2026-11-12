@@ -2,15 +2,16 @@ package config
 
 // VM describes the persistent configuration for a virtual machine.
 type VM struct {
-	Version     uint          `yaml:"version" json:"version"`
-	Name        string        `yaml:"name" json:"name"`
-	CPUs        uint          `yaml:"cpus" json:"cpus"`
-	Memory      uint64        `yaml:"memory" json:"memory"` // GiB
-	Boot        BootConfig    `yaml:"boot" json:"boot"`
-	Storage     StorageConfig `yaml:"storage" json:"storage"`
-	Networks    []string      `yaml:"networks,omitempty" json:"networks,omitempty"`
-	Video       bool          `yaml:"video,omitempty" json:"video,omitempty"`
-	VNCPassword string        `yaml:"vnc_password,omitempty" json:"vnc_password,omitempty"`
+	Version        uint          `yaml:"version" json:"version"`
+	Name           string        `yaml:"name" json:"name"`
+	CPUs           uint          `yaml:"cpus" json:"cpus"`
+	Memory         uint64        `yaml:"memory" json:"memory"` // GiB
+	Boot           BootConfig    `yaml:"boot" json:"boot"`
+	Storage        StorageConfig `yaml:"storage" json:"storage"`
+	Networks       []string      `yaml:"networks,omitempty" json:"networks,omitempty"`
+	Video          bool          `yaml:"video,omitempty" json:"video,omitempty"`
+	VNCPassword    string        `yaml:"vnc_password,omitempty" json:"vnc_password,omitempty"`
+	OCIGuestConfig GuestConfig   `yaml:"oci" json:"oci"`
 }
 
 type BootMode string
@@ -19,6 +20,7 @@ const (
 	BootModeISO    BootMode = "iso"
 	BootModeDisk   BootMode = "disk"
 	BootModeKernel BootMode = "kernel"
+	BootModeOCI    BootMode = "oci"
 )
 
 type BootConfig struct {

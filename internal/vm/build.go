@@ -48,13 +48,22 @@ func New(ctx *BuildContext, name string) (vm *VM, err error) {
 	vm.volumes = make([]vtypes.Volume, 0)
 	vm.mu = sync.Mutex{}
 	var cmdline string
-	if cfg.Boot.Mode == config.BootModeKernel {
+
+	volumes := []vzkit.VolumeMount{}
+
+	if cfg.Boot.Mode == config.BootModeKernel || cfg.Boot.Mode == config.BootModeOCI {
 		cmdline = "console=tty0 console=hvc0 root=/dev/vda"
 		slog.Info(
 			"kernel mode",
 			"kernel", cfg.Boot.Kernel,
 			"initrd", cfg.Boot.Initrd,
 		)
+
+		volumes = append(volumes, vzkit.VolumeMount{
+			HostPath: store.Path(cfg.Name, `guest`),
+			Tag:      "guest-config",
+			ReadOnly: true,
+		})
 	}
 
 	vm.cfg, err = vzkit.BuildLinuxVMConfig(
@@ -69,6 +78,7 @@ func New(ctx *BuildContext, name string) (vm *VM, err error) {
 			Network: vzkit.NetworkConfig{
 				Mode: vzkit.NetworkModeNone,
 			},
+			Volumes:  volumes,
 			Headless: !cfg.Video,
 		},
 	)
@@ -95,7 +105,7 @@ type VMConfigFunc func(ctx *BuildContext, vm *VM) error
 
 func WithContainer(cfg config.VM) VMConfigFunc {
 	return func(ctx *BuildContext, vm *VM) error {
-		if cfg.Boot.Mode != config.BootModeKernel {
+		if cfg.Boot.Mode != config.BootModeOCI {
 			return nil
 		}
 
@@ -119,7 +129,13 @@ func WithContainer(cfg config.VM) VMConfigFunc {
 			return err
 		}
 
-		vm.image = imageConfig.Config
+		cfg.OCIGuestConfig.Env = imageConfig.Config.Env
+		cfg.OCIGuestConfig.Hostname = cfg.Name
+		cfg.OCIGuestConfig.WorkingDir = imageConfig.Config.WorkingDir
+
+		if len(cfg.OCIGuestConfig.Entrypoint) < 1 && len(imageConfig.Config.Entrypoint) > 0 {
+			cfg.OCIGuestConfig.Entrypoint = imageConfig.Config.Entrypoint
+		}
 
 		rd, err := volume.OpenRD(cfg)
 		if err != nil {
@@ -129,7 +145,9 @@ func WithContainer(cfg config.VM) VMConfigFunc {
 		if err := ctx.images.CopyToVolume(rd, ref); err != nil {
 			return errors.Join(err, rd.Close())
 		}
-		return nil
+
+		guestConfigFp := store.Path(cfg.Name, `guest`, `guest.yml`)
+		return config.Write(cfg.OCIGuestConfig, guestConfigFp)
 	}
 }
 
@@ -194,11 +212,10 @@ func WithDisplay(vncPassword string) VMConfigFunc {
 		})
 
 		vm.vnc, err = vnc.New(vnc.Config{
-			Mode:     vnc.SecurityPassword,
-			Password: vncPassword,
-			//ServiceName: vm.name,
-			Port:  5905,
-			Queue: vm.q,
+			Mode:        vnc.SecurityPassword,
+			Password:    vncPassword,
+			ServiceName: vm.name,
+			Queue:       vm.q,
 		})
 
 		if err != nil {

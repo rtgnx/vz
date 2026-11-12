@@ -150,7 +150,6 @@ func (vm *VM) Start() error {
 		return err
 	}
 
-	go vm.Serve(context.Background())
 	return nil
 }
 

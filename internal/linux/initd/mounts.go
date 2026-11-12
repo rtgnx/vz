@@ -23,19 +23,24 @@ func DefaultMounts(rootDisk string) Mounts {
 		{"proc", "/proc", "proc", 0555},
 		{"tmpfs", "/run", "tmpfs", 0755},
 		{"devtmpfs", "/dev", "devtmpfs", 0755},
+		{"devpts", "/dev/pts", "devpts", 0755},
 		{"sysfs", "/sys", "sysfs", 0555},
+		{"guest-config", "/guest", "virtiofs", 0555},
 		{rootDisk, "/new_root", "ext4", 0755},
 	}
 }
 
 func (m Mount) Mount() error {
 	if err := os.MkdirAll(m.Destination, m.Mode); err != nil {
-		if !os.IsExist(err) {
-			return err
-		}
+		return err
 	}
 
-	return unix.Mount(m.Source, m.Destination, m.Type, 0, "")
+	options := ""
+	if m.Type == "devpts" {
+		options = "ptmxmode=0666"
+	}
+
+	return unix.Mount(m.Source, m.Destination, m.Type, 0, options)
 }
 
 func (m Mounts) Mount() error {
