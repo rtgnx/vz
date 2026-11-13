@@ -13,6 +13,7 @@ import (
 	"github.com/rtgnx/vz/internal/ipc"
 	"github.com/rtgnx/vz/internal/network"
 	"github.com/rtgnx/vz/internal/oci"
+	"github.com/rtgnx/vz/internal/provision"
 	"github.com/rtgnx/vz/internal/store"
 	"github.com/rtgnx/vz/internal/vmm"
 	"github.com/rtgnx/vz/internal/volume"
@@ -54,7 +55,7 @@ func main() {
 	}
 
 	slog.Info("initializng vm manager")
-	vmm := vmm.New(ctx, volumeManager, networkManager, imageStore)
+	vmm := vmm.New(ctx, provision.New(volumeManager, networkManager, imageStore))
 
 	slog.Info("serving api", "sock", store.Path("vzd.sock"))
 	go func() {
