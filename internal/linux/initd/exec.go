@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	SelfExec    = `/proc/self/exe`
+	SelfExec    = `/.init`
 	DefaultInit = `/sbin/init`
 )
 
@@ -41,7 +41,7 @@ func InitExec() error {
 		step{"sysfs", mount("sysfs", "/sys", "sysfs", 0555, "")},
 		step{"devtmpfs", mount("devtmpfs", "/dev", "devtmpfs", 0755, "")},
 		step{"devpts", mount("devpts", "/dev/pts", "devpts", 0755, "ptmxmode=0666")},
-		step{"synlink ptmx", symlink("pts/ptmx", "/dev/ptmx")},
+		//step{"synlink ptmx", symlink("pts/ptmx", "/dev/ptmx")},
 	)
 
 	if err != nil {

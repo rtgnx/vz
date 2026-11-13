@@ -26,8 +26,8 @@ import (
 )
 
 const (
-	OCIKernel string = ""
-	OCIInitRD string = ""
+	OCIInitRD string = `oci-7.3.4.rd`
+	OCIKernel string = `oci-7.3.4.kernel`
 )
 
 var (
@@ -103,6 +103,7 @@ func (p *Provisioner) Prepare(cfg config.VM) (_ *VMConfiguration, err error) {
 		withNetworks(p.network),
 		withBootConfig(),
 		withGuestConfig(),
+		withSerialLogger(),
 		withComputeResource(),
 	}
 
@@ -315,11 +316,18 @@ func withBootConfig() PrepareFunc {
 			return nil
 		case config.BootModeOCI:
 			var (
-				kernelURL = foundation.NewURLFileURLWithPath(OCIKernel)
-				initrdURL = foundation.NewURLFileURLWithPath(OCIInitRD)
+				kernelURL = foundation.NewURLFileURLWithPath(
+					store.Path(`kernel`, OCIKernel),
+				)
+
+				initrdURL = foundation.NewURLFileURLWithPath(
+					store.Path(`kernel`, OCIInitRD),
+				)
 
 				loader = vz.NewLinuxBootLoaderWithKernelURL(kernelURL)
 			)
+
+			cfg.Boot.CommandLine = "console=hvc0 " + cfg.Boot.CommandLine
 
 			loader.SetInitialRamdiskURL(initrdURL)
 			loader.SetCommandLine(cfg.Boot.CommandLine)
@@ -368,6 +376,29 @@ func withGuestConfig() PrepareFunc {
 				vmc.config.DirectorySharingDevices(),
 				device.VZDirectorySharingDeviceConfiguration,
 			),
+		)
+
+		return nil
+	}
+}
+
+func withSerialLogger() PrepareFunc {
+	return func(cfg *config.VM, vmc *VMConfiguration) error {
+		logPath := store.Path(cfg.Name, "console.log")
+
+		attachment, err := vz.NewFileSerialPortAttachmentWithURLAppendError(
+			foundation.NewURLFileURLWithPath(logPath),
+			true, // Append across VM boots.
+		)
+
+		if err != nil {
+			return err
+		}
+
+		port := vz.NewVZVirtioConsoleDeviceSerialPortConfiguration()
+		port.SetAttachment(attachment)
+		vmc.config.SetSerialPorts(
+			append(vmc.config.SerialPorts(), port.VZSerialPortConfiguration),
 		)
 
 		return nil

@@ -5,12 +5,13 @@ package initd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/diskfs/go-diskfs"
-	"github.com/diskfs/go-diskfs/disk"
-	"github.com/diskfs/go-diskfs/filesystem"
+	"github.com/diskfs/go-diskfs/filesystem/ext4"
 	"github.com/rtgnx/vz/internal/config"
 	"golang.org/x/sys/unix"
 )
@@ -41,14 +42,15 @@ func Prepare() (*config.GuestConfig, error) {
 		step{"sysfs", mount("sysfs", "/sys", "sysfs", 0555, "")},
 		step{"devtmpfs", mount("devtmpfs", "/dev", "devtmpfs", 0755, "")},
 		step{"devpts", mount("devpts", "/dev/pts", "devpts", 0755, "ptmxmode=0666")},
-		step{"synlink ptmx", symlink("pts/ptmx", "/dev/ptmx")},
+		//step{"synlink ptmx", symlink("pts/ptmx", "/dev/ptmx")},
 		step{"guest-config", mount("guest-config", "/guest", "virtiofs", 0555, "ro")},
 		step{"guest-oci", mount("/dev/vda", "/lower", "erofs", 0555, "ro")},
 		step{"guest-rd-fs", mkfs(`/dev/vdb`)},
 		step{"guest-rd", mount("/dev/vdb", "/writable", "ext4", 0555, "")},
-		step{"guest-workdir", mkdirall(`/writable/workdir`, 0755)},
+		step{"guest-workdir", mkdirall(`/writable/work`, 0755)},
 		step{"guest-upper", mkdirall(`/writable/upper`, 0755)},
 		step{"guest-overlay", mount("overlay", "/new_root", "overlay", 0755, "lowerdir=/lower,upperdir=/writable/upper,workdir=/writable/work")},
+		step{"copy init", copyf(`/init`, filepath.Join(`/new_root`, SelfExec))},
 	)
 
 	if err != nil {
@@ -103,13 +105,41 @@ func mkfs(dev string) func() error {
 			return existing.Close()
 		}
 
-		_, err = d.CreateFilesystem(disk.FilesystemSpec{
-			Partition:   0,
-			FSType:      filesystem.TypeExt4,
-			VolumeLabel: "writable",
+		_, err = ext4.Create(d.Backend, d.Size, 0, 512, &ext4.Params{
+			SectorsPerBlock: 8, // 8 × 512 = 4096-byte filesystem blocks.
+			VolumeName:      "writable",
 		})
+
 		if err != nil {
 			return fmt.Errorf("format %s: %w", dev, err)
+		}
+
+		return nil
+	}
+}
+
+func copyf(src, dst string) func() error {
+	return func() (err error) {
+		info, err := os.Stat(src)
+		if err != nil {
+			return err
+		}
+
+		srcFd, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+
+		defer srcFd.Close()
+
+		dstFd, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_RDWR, info.Mode())
+		if err != nil {
+			return err
+		}
+		defer dstFd.Close()
+		_, err = io.Copy(dstFd, srcFd)
+		if err != nil {
+			return err
 		}
 
 		return nil
