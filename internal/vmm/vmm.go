@@ -97,7 +97,7 @@ func (vmm *VMM) Start(ctx context.Context, name string) error {
 	vm := vm.NewVM(vmc, name)
 	vmm.vms[name] = vm
 
-	slog.Info("starting virtual machine", "name", name)
+	slog.Info("[vmm]: starting virtual machine", "name", name)
 
 	if err := vm.Start(); err != nil {
 		closeErr := vm.Close()
@@ -124,6 +124,8 @@ func (vmm *VMM) Stop(ctx context.Context, name string, force bool) error {
 	if !ok {
 		return ErrVMNotExist
 	}
+
+	slog.Info("[vmm]: stopping virtual machine", "name", name)
 
 	var gracefulErr error
 	if !force {
