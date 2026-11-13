@@ -32,7 +32,7 @@ type ImageStore struct {
 
 func NewImageStore(root string) (*ImageStore, error) {
 	imageStore := &ImageStore{root: root, driver: asif.New(root)}
-	if _, err := os.Stat(filepath.Join(`index.json`)); err != nil {
+	if _, err := os.Stat(filepath.Join(root, `index.json`)); err != nil {
 		store, err := layout.Write(root, empty.Index)
 		if err != nil {
 			return nil, err
@@ -92,8 +92,14 @@ func (is ImageStore) Open(ref name.Reference) (v1.Image, error) {
 func (is ImageStore) Config(ref name.Reference) (v1.Config, error) {
 	image, err := is.Open(ref)
 	if err != nil {
-		return v1.Config{}, err
+		if err := is.Pull(ref); err != nil {
+			return v1.Config{}, err
+		}
+		if image, err = is.Open(ref); err != nil {
+			return v1.Config{}, err
+		}
 	}
+
 	configFile, err := image.ConfigFile()
 	if err != nil {
 		return v1.Config{}, err
@@ -120,7 +126,13 @@ func (is ImageStore) OpenRD(ref name.Reference) (types.Volume, error) {
 func (is ImageStore) CreateRD(ref name.Reference) (err error) {
 	image, err := is.Open(ref)
 	if err != nil {
-		return err
+		if err := is.Pull(ref); err != nil {
+			return err
+		}
+
+		if image, err = is.Open(ref); err != nil {
+			return err
+		}
 	}
 
 	size, err := imageSize(image)
@@ -128,9 +140,8 @@ func (is ImageStore) CreateRD(ref name.Reference) (err error) {
 		return err
 	}
 	var (
-		name          = safeName(ref.String())
-		overheadBytes = uint64(0)
-		sizeBytes     = uint64(size) + overheadBytes
+		name      = safeName(ref.String())
+		sizeBytes = uint64(size)
 	)
 
 	if err = is.driver.Create(name, sizeBytes); err != nil {
