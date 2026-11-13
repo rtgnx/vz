@@ -35,6 +35,19 @@ func main() {
 		return
 	}
 
+	go func() {
+		err := initd.WaitPowerButton(ctx, "/dev/input/event0") // Discovered path.
+		if err != nil {
+			if ctx.Err() == nil {
+				slog.Error("power-button listener", "err", err)
+			}
+			return
+		}
+
+		slog.Info("power button pressed")
+		cancel() // Enter the same shutdown path as SIGTERM.
+	}()
+
 	if err := initd.Network(ctx, config.Hostname); err != nil {
 		slog.Error("network", "err", err)
 	}
@@ -44,6 +57,15 @@ func main() {
 	if err := cmd.Start(); err != nil {
 		return
 	}
+
+	keys, err := initd.ParseSSHKeys(config.SSHPubKeys...)
+
+	if err != nil {
+		slog.Error("[init:sshd] failed to parse ssh keys", "err", err)
+	} else {
+		go initd.ServeSSH(ctx, keys)
+	}
+
 	exited := make(chan error, 1)
 	go func() {
 		exited <- cmd.Wait()
@@ -60,6 +82,8 @@ func main() {
 		if err != nil {
 			slog.Error("signal init", "signal", "SIGTERM", "err", err)
 		}
+
+		initd.Shutdown()
 
 		select {
 		case <-exited:

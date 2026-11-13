@@ -61,6 +61,34 @@ func Prepare() (*config.GuestConfig, error) {
 	return config.Read[config.GuestConfig](`/guest/guest.yml`)
 }
 
+func Shutdown() error {
+	err := runSteps(
+		step{"unmount guest-overlay", umount(`/new_root`)},
+		step{"unmount guest-writable", umount(`/writable`)},
+		step{"unmount guest-lower", umount(`/lower`)},
+		step{"unmount guest-config", umount(`/guest`)},
+	)
+
+	if err != nil {
+		slog.Error("[initd] shutdown steps failed", "err", err)
+	}
+
+	unix.Sync()
+
+	if err := unix.Reboot(unix.LINUX_REBOOT_CMD_POWER_OFF); err != nil {
+		slog.Error("power off failed", "err", err)
+	}
+
+	select {}
+
+}
+
+func umount(target string) func() error {
+	return func() error {
+		return unix.Unmount(target, 0)
+	}
+}
+
 func mount(src, dst, fsType string, perm os.FileMode, opts string) func() error {
 
 	return func() error {
@@ -101,7 +129,7 @@ func mkfs(dev string) func() error {
 			err = errors.Join(err, d.Close())
 		}()
 
-		existing, detectErr := d.GetFilesystem(0)
+		existing, detectErr := ext4.Read(d.Backend, d.Size, 0, 512)
 		if detectErr == nil {
 			return existing.Close()
 		}
