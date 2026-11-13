@@ -51,6 +51,7 @@ func Prepare() (*config.GuestConfig, error) {
 		step{"guest-upper", mkdirall(`/writable/upper`, 0755)},
 		step{"guest-overlay", mount("overlay", "/new_root", "overlay", 0755, "lowerdir=/lower,upperdir=/writable/upper,workdir=/writable/work")},
 		step{"copy init", copyf(`/init`, filepath.Join(`/new_root`, SelfExec))},
+		step{"configure dns", writef(`/new_root/etc/resolv.conf`, []byte(`nameserver 1.1.1.1`), 0644)},
 	)
 
 	if err != nil {
@@ -143,5 +144,11 @@ func copyf(src, dst string) func() error {
 		}
 
 		return nil
+	}
+}
+
+func writef(dst string, b []byte, perm os.FileMode) func() error {
+	return func() error {
+		return os.WriteFile(dst, b, perm)
 	}
 }
