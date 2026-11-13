@@ -3,10 +3,14 @@
 package initd
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 
+	"github.com/diskfs/go-diskfs"
+	"github.com/diskfs/go-diskfs/disk"
+	"github.com/diskfs/go-diskfs/filesystem"
 	"github.com/rtgnx/vz/internal/config"
 	"golang.org/x/sys/unix"
 )
@@ -40,7 +44,7 @@ func Prepare() (*config.GuestConfig, error) {
 		step{"synlink ptmx", symlink("pts/ptmx", "/dev/ptmx")},
 		step{"guest-config", mount("guest-config", "/guest", "virtiofs", 0555, "ro")},
 		step{"guest-oci", mount("/dev/vda", "/lower", "erofs", 0555, "ro")},
-		step{"guest-rd-fs", mkfs(`/dev/vdb`, `ext4`)},
+		step{"guest-rd-fs", mkfs(`/dev/vdb`)},
 		step{"guest-rd", mount("/dev/vdb", "/writable", "ext4", 0555, "")},
 		step{"guest-workdir", mkdirall(`/writable/workdir`, 0755)},
 		step{"guest-upper", mkdirall(`/writable/upper`, 0755)},
@@ -82,8 +86,32 @@ func symlink(src, dst string) func() error {
 	}
 }
 
-func mkfs(dev, fstype string) func() error {
-	return func() error {
+func mkfs(dev string) func() error {
+	return func() (err error) {
+		d, err := diskfs.Open(dev,
+			diskfs.WithOpenMode(diskfs.ReadWriteExclusive),
+		)
+		if err != nil {
+			return fmt.Errorf("open %s: %w", dev, err)
+		}
+		defer func() {
+			err = errors.Join(err, d.Close())
+		}()
+
+		existing, detectErr := d.GetFilesystem(0)
+		if detectErr == nil {
+			return existing.Close()
+		}
+
+		_, err = d.CreateFilesystem(disk.FilesystemSpec{
+			Partition:   0,
+			FSType:      filesystem.TypeExt4,
+			VolumeLabel: "writable",
+		})
+		if err != nil {
+			return fmt.Errorf("format %s: %w", dev, err)
+		}
+
 		return nil
 	}
 }
