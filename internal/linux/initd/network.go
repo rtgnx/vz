@@ -89,6 +89,7 @@ func linkSetup(ctx context.Context, link netlink.Link, wg *sync.WaitGroup) {
 
 	if err != nil {
 		slog.Error("[nclient] nclient setup", "link", attrs.Name, "err", err)
+		return
 	}
 
 	defer client.Close()
@@ -120,6 +121,22 @@ func linkSetup(ctx context.Context, link netlink.Link, wg *sync.WaitGroup) {
 			if err := netlink.AddrReplace(link, addr); err != nil {
 				slog.Error("[netlink] ip addr add", "addr", addr.String(), "link", attrs.Name)
 				continue
+			}
+
+			if routers := lease.ACK.Router(); len(routers) > 0 {
+				// Distinct metrics prevent concurrent DHCP replies on different
+				// links from replacing each other's default routes.
+				route := &netlink.Route{
+					LinkIndex: attrs.Index,
+					Dst:       &net.IPNet{IP: net.IPv4zero, Mask: net.CIDRMask(0, 32)},
+					Gw:        routers[0],
+					Priority:  100 + attrs.Index,
+				}
+				if err := netlink.RouteReplace(route); err != nil {
+					slog.Error("[netlink] default route", "link", attrs.Name, "gateway", route.Gw, "err", err)
+					continue
+				}
+				slog.Info("[netlink] default route applied", "link", attrs.Name, "gateway", route.Gw, "metric", route.Priority)
 			}
 
 			slog.Info("[netlink] dhcp lease applied", "link", attrs.Name, "addr", addr.String())
