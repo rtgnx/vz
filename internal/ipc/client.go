@@ -81,8 +81,8 @@ func (c *Client) VMMStart(name string) error {
 }
 
 // VMMStop asks the server to stop the named VM.
-func (c *Client) VMMStop(name string) error {
-	return c.Call("VMM.Stop", VMStopRequest{Name: name}, &Empty{})
+func (c *Client) VMMStop(name string, force bool) error {
+	return c.Call("VMM.Stop", VMStopRequest{Name: name, Force: force}, &Empty{})
 }
 
 // VMMState returns the runtime state reported for the named VM.

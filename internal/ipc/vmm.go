@@ -31,7 +31,10 @@ type VMCreateRequest struct {
 type VMStartRequest = BaseRequest
 
 // VMStopRequest identifies a VM to stop.
-type VMStopRequest = BaseRequest
+type VMStopRequest struct {
+	Name  string
+	Force bool
+}
 
 // VMStateRequest identifies a VM whose state is requested.
 type VMStateRequest = BaseRequest
@@ -66,7 +69,7 @@ func (vs *VMMService) Start(req VMStartRequest, res *Empty) error {
 
 // Stop stops the VM identified by req.Name.
 func (vs *VMMService) Stop(req VMStopRequest, res *Empty) error {
-	return vs.manager.Stop(context.Background(), req.Name)
+	return vs.manager.Stop(context.Background(), req.Name, req.Force)
 }
 
 // State writes the runtime state of the named VM to res.

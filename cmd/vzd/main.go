@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/rtgnx/vz/internal/ipc"
 	"github.com/rtgnx/vz/internal/network"
@@ -75,14 +74,8 @@ func main() {
 
 	<-ctx.Done()
 
-	sctx, scancel := context.WithTimeout(
-		context.Background(), time.Second*60,
-	)
-
-	defer scancel()
-
-	vmm.Shutdown(sctx)
-
-	<-sctx.Done()
+	if err := vmm.Close(); err != nil {
+		slog.Error("[vmm] close error", "err", err)
+	}
 
 }

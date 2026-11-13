@@ -98,12 +98,13 @@ func StartCommand(ctx context.Context, client *ipc.Client) *cobra.Command {
 }
 
 func StopCommand(ctx context.Context, client *ipc.Client) *cobra.Command {
+	force := false
 	cmd := &cobra.Command{
 		Use:   "stop [flags] VM",
 		Short: "stop virtual machine",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			if err := client.VMMStop(args[0]); err != nil {
+			if err := client.VMMStop(args[0], force); err != nil {
 				slog.Error("vm service stop", "name", args[0], "err", err)
 				return
 			}
@@ -111,6 +112,9 @@ func StopCommand(ctx context.Context, client *ipc.Client) *cobra.Command {
 			slog.Info("vm stopped", "name", args[0])
 		},
 	}
+
+	flags := cmd.Flags()
+	flags.BoolVarP(&force, `force`, `f`, false, `force stop virtual machine`)
 
 	return cmd
 }
